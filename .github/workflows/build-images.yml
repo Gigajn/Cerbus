@@ -3,7 +3,7 @@ name: build-images
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
 
 concurrency:
@@ -19,27 +19,16 @@ env:
   OWNER: ${{ github.repository_owner }}
 
 jobs:
-  build_and_push:
+  control_plane:
+    name: Build & push control-plane
+    if: ${{ hashFiles('apps/control-plane/Dockerfile') != '' }}
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        app:
-          - name: control-plane
-            context: apps/control-plane
-            dockerfile: apps/control-plane/Dockerfile
-          - name: portal
-            context: apps/portal
-            dockerfile: apps/portal/Dockerfile
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -49,31 +38,85 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: |
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.app.name }}
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/control-plane
           tags: |
             type=ref,event=branch
             type=ref,event=tag
-            type=sha,prefix=sha-
+            type=sha,prefix=sha-,format=long
             type=raw,value=latest,enable={{is_tag}}
           labels: |
-            org.opencontainers.image.source=${{ github.repositoryUrl }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
-      - name: Build and push
+      - name: Build & push
+        id: build
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.app.context }}
-          file: ${{ matrix.app.dockerfile }}
+          context: .
+          file: apps/control-plane/Dockerfile
           push: true
+          platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
 
-      - name: Trivy image scan (fail on HIGH/CRITICAL for tags)
+      - name: Trivy scan (by digest)
         uses: aquasecurity/trivy-action@0.33.1
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.app.name }}:${{ steps.meta.outputs.version }}
-          format: 'table'
+          image-ref: ${{ env.REGISTRY }}/${{ env.OWNER }}/control-plane@${{ steps.build.outputs.digest }}
+          format: table
           ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
+          severity: CRITICAL,HIGH
+
+  portal:
+    name: Build & push portal
+    if: ${{ hashFiles('apps/portal/Dockerfile') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/portal
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-,format=long
+            type=raw,value=latest,enable={{is_tag}}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build & push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/portal/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Trivy scan (by digest)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.OWNER }}/portal@${{ steps.build.outputs.digest }}
+          format: table
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH

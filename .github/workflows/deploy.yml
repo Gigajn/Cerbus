@@ -1,27 +1,18 @@
 name: deploy
 
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Target environment'
+        description: Target environment
         required: true
-        default: 'staging'
+        default: staging
         type: choice
-        options:
-          - staging
-          - production
+        options: [staging, production]
       image_tag:
-        description: 'Image tag to deploy (e.g. main, sha-xxxx, v1.2.3, latest)'
-        required: false
-        default: 'main'
-
-concurrency:
-  group: deploy-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+        description: Image tag (main / v1.2.3 / sha-...)
+        required: true
+        default: main
 
 permissions:
   contents: read
@@ -29,64 +20,6 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    # Use GitHub Environments for approvals & env-specific secrets.
-    # Create environments: staging, production in repo settings.
-    environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging') }}
-
     steps:
-      - name: Decide deploy tag
-        id: vars
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
-          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            # For tagged releases, deploy the tag name (e.g. v1.2.3)
-            echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
-          else
-            # For main, deploy 'main' tag (change to sha- if you prefer immutable)
-            echo "tag=main" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Add SSH key
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Deploy via SSH (docker compose)
-        shell: bash
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          TAG: ${{ steps.vars.outputs.tag }}
-          # If your GHCR images are PUBLIC, server can pull without auth.
-          # If PRIVATE, add GHCR_USERNAME + GHCR_TOKEN secrets and docker login on the server.
-        run: |
-          : "${SSH_PORT:=22}"
-          echo "Deploying tag=$TAG to $SSH_USER@$SSH_HOST:$DEPLOY_PATH"
-
-          ssh -p "$SSH_PORT" -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST"             "DEPLOY_PATH='$DEPLOY_PATH' TAG='$TAG' bash -s" <<'EOF'
-          set -euo pipefail
-          cd "$DEPLOY_PATH"
-
-          # The compose file should reference images like:
-          # ghcr.io/<owner>/control-plane:${TAG}
-          # ghcr.io/<owner>/portal:${TAG}
-          export TAG="$TAG"
-
-          docker compose pull
-          docker compose up -d --remove-orphans
-          docker image prune -f
-          
-      - name: Smoke test (optional)
-        if: ${{ secrets.HEALTHCHECK_URL != '' }}
-        shell: bash
-        env:
-          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
-        run: |
-          curl -fsS "$HEALTHCHECK_URL"
+      - run: |
+          echo "Deploy masih manual. Nanti saat server/K8s siap, kita aktifkan SSH/ArgoCD."
