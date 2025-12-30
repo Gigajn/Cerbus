@@ -1,0 +1,46 @@
+# Node / pnpm
+node_modules/
+**/node_modules/
+.pnpm-store/
+.pnp.*
+.yarn/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Turbo / build caches
+.turbo/
+.cache/
+.tmp/
+
+# Builds
+dist/
+build/
+out/
+coverage/
+
+# Next.js (kalau portal pakai Next)
+.next/
+
+# Env / secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+id_rsa
+id_rsa.pub
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Go
+bin/
+*.exe
+*.test
+*.out
