@@ -19,26 +19,49 @@ env:
   OWNER: ${{ github.repository_owner }}
 
 jobs:
-  control_plane:
-    name: Build & push control-plane
-    if: ${{ hashFiles('apps/control-plane/Dockerfile') != '' }}
+  build_and_push:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - name: control-plane
+            dockerfile: apps/control-plane/Dockerfile
+          - name: portal
+            dockerfile: apps/portal/Dockerfile
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Check Dockerfile exists
+        id: check
+        shell: bash
+        run: |
+          if [ -f "${{ matrix.app.dockerfile }}" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Dockerfile not found: ${{ matrix.app.dockerfile }} -> SKIP"
+          fi
 
-      - uses: docker/login-action@v3
+      - name: Set up Docker Buildx
+        if: steps.check.outputs.exists == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: steps.check.outputs.exists == 'true'
+        uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Docker metadata
+        if: steps.check.outputs.exists == 'true'
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/control-plane
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.app.name }}
           tags: |
             type=ref,event=branch
             type=ref,event=tag
@@ -48,13 +71,15 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
       - name: Build & push
+        if: steps.check.outputs.exists == 'true'
         id: build
         uses: docker/build-push-action@v6
         with:
+          # monorepo-safe (Dockerfile tetap spesifik app)
           context: .
-          file: apps/control-plane/Dockerfile
-          push: true
+          file: ${{ matrix.app.dockerfile }}
           platforms: linux/amd64
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -62,61 +87,13 @@ jobs:
           provenance: true
           sbom: true
 
-      - name: Trivy scan (by digest)
+      - name: Trivy image scan (fail only on release tags)
+        if: steps.check.outputs.exists == 'true'
+        continue-on-error: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: aquasecurity/trivy-action@0.33.1
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.OWNER }}/control-plane@${{ steps.build.outputs.digest }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.app.name }}@${{ steps.build.outputs.digest }}
           format: table
           ignore-unfixed: true
           severity: CRITICAL,HIGH
-
-  portal:
-    name: Build & push portal
-    if: ${{ hashFiles('apps/portal/Dockerfile') != '' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/portal
-          tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha,prefix=sha-,format=long
-            type=raw,value=latest,enable={{is_tag}}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-
-      - name: Build & push
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: apps/portal/Dockerfile
-          push: true
-          platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
-
-      - name: Trivy scan (by digest)
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.OWNER }}/portal@${{ steps.build.outputs.digest }}
-          format: table
-          ignore-unfixed: true
-          severity: CRITICAL,HIGH
+          exit-code: "1"
