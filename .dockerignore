@@ -1,0 +1,17 @@
+.git
+.github
+node_modules
+**/node_modules
+.turbo
+**/.turbo
+dist
+build
+out
+coverage
+.next
+**/.next
+.DS_Store
+.idea
+.vscode
+*.log
+pnpm-debug.log*
